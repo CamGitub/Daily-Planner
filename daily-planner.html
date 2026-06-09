@@ -539,37 +539,61 @@ async function syncOutlookCalendar() {
   graphToken = await acquireToken();
   if (!graphToken) { setSyncStatus('off', 'Not connected'); return; }
 
+  // ── Sync calendar events ──
   const today = new Date();
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
   const end = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
 
-  const data = await graphFetch('GET', `/me/calendarView?startDateTime=${start}&endDateTime=${end}&$select=id,subject,start,end&$top=50`);
-  if (!data || !data.value) { setSyncStatus('live', 'Sync failed — check connection'); return; }
-
-  const existingOutlookIds = new Set(blocks.filter(b=>b.outlookId).map(b=>b.outlookId));
-  const freshIds = new Set(data.value.map(e=>e.id));
-
-  // Remove blocks from outlook that no longer exist in calendar
-  blocks = blocks.filter(b => !b.outlookId || freshIds.has(b.outlookId));
-
-  // Add new events
-  for (const ev of data.value) {
-    if (!existingOutlookIds.has(ev.id)) {
-      const s = new Date(ev.start.dateTime || ev.start.date);
-      const e2 = new Date(ev.end.dateTime || ev.end.date);
-      blocks.push({
-        id: Date.now() + Math.random(),
-        title: ev.subject || '(No title)',
-        start: s.toTimeString().slice(0,5),
-        end: e2.toTimeString().slice(0,5),
-        cat: 'outlook',
-        outlookId: ev.id
-      });
+  const calData = await graphFetch('GET', `/me/calendarView?startDateTime=${start}&endDateTime=${end}&$select=id,subject,start,end&$top=50`);
+  if (calData && calData.value) {
+    const existingOutlookIds = new Set(blocks.filter(b=>b.outlookId).map(b=>b.outlookId));
+    const freshIds = new Set(calData.value.map(e=>e.id));
+    blocks = blocks.filter(b => !b.outlookId || freshIds.has(b.outlookId));
+    for (const ev of calData.value) {
+      if (!existingOutlookIds.has(ev.id)) {
+        const s = new Date(ev.start.dateTime || ev.start.date);
+        const e2 = new Date(ev.end.dateTime || ev.end.date);
+        blocks.push({
+          id: Date.now() + Math.random(),
+          title: ev.subject || '(No title)',
+          start: s.toTimeString().slice(0,5),
+          end: e2.toTimeString().slice(0,5),
+          cat: 'outlook',
+          outlookId: ev.id
+        });
+      }
     }
+    blocks.sort((a,b) => a.start.localeCompare(b.start));
+    saveBlocks();
   }
-  blocks.sort((a,b) => a.start.localeCompare(b.start));
-  saveBlocks(); render();
-  setSyncStatus('live', `Synced — ${data.value.length} event${data.value.length!==1?'s':''} today`);
+
+  // ── Sync To Do tasks ──
+  const listsData = await graphFetch('GET', '/me/todo/lists');
+  if (listsData && listsData.value) {
+    const existingOutlookTaskIds = new Set(tasks.filter(t=>t.outlookId).map(t=>t.outlookId));
+    for (const list of listsData.value) {
+      const tasksData = await graphFetch('GET', `/me/todo/lists/${list.id}/tasks?$filter=status ne 'completed'&$top=100`);
+      if (!tasksData || !tasksData.value) continue;
+      for (const ot of tasksData.value) {
+        if (!existingOutlookTaskIds.has(ot.id)) {
+          tasks.push({
+            id: Date.now() + Math.random(),
+            text: ot.title || '(No title)',
+            time: '',
+            priority: ot.importance === 'high' ? 'high' : ot.importance === 'low' ? 'low' : 'med',
+            done: false,
+            outlookId: ot.id
+          });
+          existingOutlookTaskIds.add(ot.id);
+        }
+      }
+    }
+    saveTasks();
+  }
+
+  render();
+  const evCount = calData && calData.value ? calData.value.length : 0;
+  setSyncStatus('live', `Synced — ${evCount} calendar event${evCount!==1?'s':''} today`);
 }
 
 async function createOutlookEvent(block) {
