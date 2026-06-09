@@ -474,7 +474,7 @@ function handleOutlookBtn() {
   else { syncOutlookCalendar(); }
 }
 
-function saveClientId() {
+async function saveClientId() {
   const id = document.getElementById('client-id-input').value.trim();
   if (!id) return alert('Please paste your Azure Client ID first.');
   localStorage.setItem(CLIENT_ID_KEY, id);
