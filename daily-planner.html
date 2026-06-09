@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Planner</title>
+<script src="https://unpkg.com/@azure/msal-browser@3.10.0/lib/msal-browser.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f6f3;
+    --surface: #ffffff;
+    --border: #e4e2db;
+    --border-strong: #c8c5bc;
+    --text: #1a1917;
+    --muted: #6b6860;
+    --hint: #a09d97;
+    --accent: #2d5be3;
+    --accent-light: #eef1fd;
+    --accent-muted: #6b89f0;
+    --high: #dc3545;
+    --high-bg: #fdf0f0;
+    --med: #e08a00;
+    --med-bg: #fdf6e8;
+    --low: #2a7d4f;
+    --low-bg: #edf7f2;
+    --success: #2a7d4f;
+    --success-bg: #edf7f2;
+    --warning: #e08a00;
+    --warning-bg: #fdf6e8;
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 15px; }
+  .app { max-width: 720px; margin: 0 auto; padding: 24px 16px 60px; }
+
+  /* Offline banner */
+  .offline-banner { background: var(--warning-bg); border: 1px solid var(--warning); border-radius: var(--radius-sm); padding: 8px 14px; font-size: 13px; color: var(--warning); margin-bottom: 16px; display: none; align-items: center; gap: 8px; }
+  .offline-banner.show { display: flex; }
+
+  /* Header */
+  .header { margin-bottom: 24px; }
+  .header-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .date-label { font-size: 22px; font-weight: 600; }
+  .greeting { font-size: 14px; color: var(--muted); margin-top: 2px; }
+  .header-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+
+  /* Buttons */
+  .btn { padding: 8px 14px; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; font-weight: 500; border: 1px solid var(--border); background: var(--surface); color: var(--text); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-family: inherit; }
+  .btn:hover { background: var(--bg); }
+  .btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+  .btn-primary:hover { background: #2450c8; border-color: #2450c8; }
+  .btn-success { background: var(--success-bg); color: var(--success); border-color: var(--success); }
+  .btn-danger { background: var(--high-bg); color: var(--high); border-color: var(--high); }
+  .btn-add { padding: 9px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; font-weight: 500; white-space: nowrap; font-family: inherit; }
+  .btn-add:hover { background: #2450c8; }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 24px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .stat-n { font-size: 26px; font-weight: 600; line-height: 1; }
+  .stat-l { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Tabs */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .tab { padding: 10px 18px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; background: none; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; font-family: inherit; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  /* Add row */
+  .add-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .add-row input[type=text], .add-row input[type=time], .add-row select {
+    font-family: inherit; font-size: 14px; padding: 9px 12px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text); outline: none;
+  }
+  .add-row input[type=text] { flex: 1; min-width: 160px; }
+  .add-row input[type=time] { width: 108px; }
+  .add-row select { width: 120px; }
+  .add-row input:focus, .add-row select:focus { border-color: var(--accent-muted); box-shadow: 0 0 0 3px rgba(45,91,227,0.1); }
+
+  /* Task list */
+  .card-list { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .task-item { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .task-item:last-child { border-bottom: none; }
+  .task-check { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--border-strong); cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+  .task-check.done { background: var(--success-bg); border-color: var(--success); }
+  .task-check.done::after { content: '✓'; font-size: 11px; color: var(--success); font-weight: 700; }
+  .priority-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .p-high { background: var(--high); }
+  .p-med { background: var(--med); }
+  .p-low { background: var(--low); }
+  .task-body { flex: 1; min-width: 0; }
+  .task-text { font-size: 14px; }
+  .task-text.done { text-decoration: line-through; color: var(--hint); }
+  .task-meta { display: flex; gap: 8px; margin-top: 3px; align-items: center; flex-wrap: wrap; }
+  .task-time-lbl { font-size: 12px; color: var(--muted); }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 20px; font-weight: 500; }
+  .pb-high { background: var(--high-bg); color: var(--high); }
+  .pb-med { background: var(--med-bg); color: var(--med); }
+  .pb-low { background: var(--low-bg); color: var(--low); }
+  .badge-outlook { background: #fff4e8; color: #b84500; }
+  .item-del { background: none; border: none; cursor: pointer; color: var(--hint); font-size: 16px; padding: 2px 4px; line-height: 1; flex-shrink: 0; }
+  .item-del:hover { color: var(--high); }
+
+  /* Block list */
+  .block-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .block-item:last-child { border-bottom: none; }
+  .block-time { font-size: 12px; color: var(--muted); min-width: 64px; padding-top: 2px; line-height: 1.6; }
+  .block-body { flex: 1; }
+  .block-title { font-size: 14px; font-weight: 500; }
+  .block-cat { font-size: 11px; padding: 2px 8px; border-radius: 20px; display: inline-block; margin-top: 4px; font-weight: 500; }
+  .cat-work { background: #eef1fd; color: #2d5be3; }
+  .cat-personal { background: #f0eefe; color: #5b3dc8; }
+  .cat-health { background: var(--low-bg); color: var(--low); }
+  .cat-break { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+  .cat-outlook { background: #fff4e8; color: #b84500; }
+
+  /* Sync status strip */
+  .sync-strip { font-size: 13px; color: var(--muted); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); flex-shrink: 0; }
+  .sync-dot.live { background: var(--success); }
+  .sync-dot.syncing { background: var(--warning); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* Assistant */
+  .ai-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .msg-area { display: flex; flex-direction: column; gap: 10px; min-height: 160px; max-height: 340px; overflow-y: auto; margin-bottom: 14px; }
+  .ai-msg { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 14px; line-height: 1.6; max-width: 85%; }
+  .ai-msg.assistant { background: var(--bg); color: var(--text); align-self: flex-start; border: 1px solid var(--border); }
+  .ai-msg.user { background: var(--accent-light); color: #1a2e6b; align-self: flex-end; }
+  .ai-input-row { display: flex; gap: 8px; }
+  .ai-input-row textarea { flex: 1; font-family: inherit; font-size: 14px; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); resize: none; height: 42px; background: var(--surface); color: var(--text); outline: none; }
+  .ai-input-row textarea:focus { border-color: var(--accent-muted); box-shadow: 0 0 0 3px rgba(45,91,227,0.1); }
+  .btn-send { padding: 9px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; font-weight: 500; font-family: inherit; }
+  .btn-send:hover { background: #2450c8; }
+  .quick-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+  .quick-btn { font-size: 12px; padding: 6px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 20px; cursor: pointer; color: var(--muted); font-family: inherit; }
+  .quick-btn:hover { border-color: var(--accent-muted); color: var(--accent); background: var(--accent-light); }
+
+  /* Setup screen */
+  .setup-screen { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; text-align: center; }
+  .setup-screen h2 { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
+  .setup-screen p { font-size: 14px; color: var(--muted); line-height: 1.7; margin-bottom: 20px; max-width: 480px; margin-left: auto; margin-right: auto; }
+  .setup-steps { text-align: left; background: var(--bg); border-radius: var(--radius-sm); padding: 16px 20px; margin-bottom: 20px; max-width: 480px; margin-left: auto; margin-right: auto; }
+  .setup-steps li { font-size: 13px; color: var(--muted); line-height: 1.8; margin-left: 16px; }
+  .setup-steps li strong { color: var(--text); }
+  .client-id-row { display: flex; gap: 8px; max-width: 480px; margin: 0 auto 16px; }
+  .client-id-row input { flex: 1; font-family: inherit; font-size: 14px; padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); outline: none; }
+  .client-id-row input:focus { border-color: var(--accent-muted); box-shadow: 0 0 0 3px rgba(45,91,227,0.1); }
+
+  /* Empty */
+  .empty { padding: 32px; text-align: center; color: var(--hint); font-size: 14px; }
+  .hidden { display: none !important; }
+
+  /* Queued indicator */
+  .queued-badge { font-size: 11px; background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); padding: 1px 7px; border-radius: 20px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="offline-banner" id="offline-banner">
+    ⚡ You're offline — your changes are saved locally and will sync when you reconnect.
+  </div>
+
+  <div class="header">
+    <div class="header-top">
+      <div>
+        <div class="date-label" id="date-label"></div>
+        <div class="greeting" id="greeting"></div>
+      </div>
+      <div class="header-actions" id="header-actions">
+        <button class="btn" id="outlook-status-btn" onclick="handleOutlookBtn()">📅 Connect Outlook</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('tasks',this)">Tasks</button>
+    <button class="tab" onclick="showTab('schedule',this)">Schedule</button>
+    <button class="tab" onclick="showTab('assistant',this)">Assistant</button>
+    <button class="tab" onclick="showTab('settings',this)">Settings</button>
+  </div>
+
+  <!-- Tasks -->
+  <div id="tab-tasks">
+    <div class="add-row">
+      <input type="text" id="new-task" placeholder="Add a task…">
+      <input type="time" id="task-time">
+      <select id="task-priority">
+        <option value="high">High</option>
+        <option value="med" selected>Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <button class="btn-add" onclick="addTask()">+ Add</button>
+    </div>
+    <div id="task-list" class="card-list"><div class="empty">No tasks yet — add one above</div></div>
+  </div>
+
+  <!-- Schedule -->
+  <div id="tab-schedule" class="hidden">
+    <div class="sync-strip" id="sync-strip">
+      <div class="sync-dot" id="sync-dot"></div>
+      <span id="sync-label">Not connected to Outlook</span>
+      <button class="btn" style="font-size:12px;padding:4px 10px;margin-left:auto" id="sync-btn" onclick="syncOutlookCalendar()" style="display:none">↻ Sync now</button>
+    </div>
+    <div class="add-row">
+      <input type="time" id="bl-start">
+      <input type="time" id="bl-end">
+      <input type="text" id="bl-title" placeholder="Block title…" style="flex:1;min-width:140px">
+      <select id="bl-cat">
+        <option value="work">Work</option>
+        <option value="personal">Personal</option>
+        <option value="health">Health</option>
+        <option value="break">Break</option>
+      </select>
+      <button class="btn-add" onclick="addBlock()">+ Add</button>
+    </div>
+    <div id="block-list" class="card-list"><div class="empty">No blocks yet — add one above</div></div>
+  </div>
+
+  <!-- Assistant -->
+  <div id="tab-assistant" class="hidden">
+    <div class="ai-card">
+      <div class="msg-area" id="msg-area">
+        <div class="ai-msg assistant">Hi! I'm your daily assistant. Ask me to help plan your day, prioritise tasks, or anything else you need. I know your current tasks and schedule.</div>
+      </div>
+      <div class="ai-input-row">
+        <textarea id="ai-input" placeholder="Ask me anything about your day…"></textarea>
+        <button class="btn-send" onclick="sendAI()">Send</button>
+      </div>
+      <div class="quick-btns">
+        <button class="quick-btn" onclick="quickAsk('What should I focus on first today?')">What to focus on first</button>
+        <button class="quick-btn" onclick="quickAsk('Suggest a productive morning routine')">Morning routine</button>
+        <button class="quick-btn" onclick="quickAsk('Help me do a quick end-of-day review')">End of day review</button>
+        <button class="quick-btn" onclick="quickAsk('How is my day looking overall?')">Day overview</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div id="tab-settings" class="hidden">
+    <div class="setup-screen" id="setup-screen">
+      <h2>Connect to Microsoft Outlook</h2>
+      <p>To get two-way sync with your Outlook calendar, you need a free Microsoft Azure app ID. This is a one-time setup that takes about 10 minutes.</p>
+      <ol class="setup-steps">
+        <li>Go to <strong>portal.azure.com</strong> and sign in with your Microsoft account</li>
+        <li>Search for <strong>App registrations</strong> and click <strong>New registration</strong></li>
+        <li>Give it any name (e.g. "My Daily Planner"), leave defaults, click <strong>Register</strong></li>
+        <li>Copy the <strong>Application (client) ID</strong> shown on the overview page</li>
+        <li>Go to <strong>Authentication → Add a platform → Single-page application</strong></li>
+        <li>Set redirect URI to: <strong id="redirect-uri"></strong></li>
+        <li>Under <strong>API permissions</strong>, add: <strong>Calendars.ReadWrite</strong> and <strong>Tasks.ReadWrite</strong></li>
+        <li>Paste your Client ID below and click Save</li>
+      </ol>
+      <div class="client-id-row">
+        <input type="text" id="client-id-input" placeholder="Paste your Azure Client ID here…">
+        <button class="btn btn-primary" onclick="saveClientId()">Save & Connect</button>
+      </div>
+      <p style="font-size:12px;color:var(--hint)">Your Client ID is stored only in this browser. It never leaves your device.</p>
+    </div>
+
+    <div id="connected-settings" class="hidden">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <div class="sync-dot live"></div>
+          <span style="font-size:15px;font-weight:500">Outlook connected</span>
+        </div>
+        <div style="font-size:14px;color:var(--muted);margin-bottom:4px">Signed in as:</div>
+        <div style="font-size:14px;font-weight:500;margin-bottom:16px" id="signed-in-as">—</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-success" onclick="syncOutlookCalendar()">↻ Sync calendar now</button>
+          <button class="btn btn-danger" onclick="disconnectOutlook()">Disconnect Outlook</button>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+        <div style="font-size:15px;font-weight:500;margin-bottom:12px">Data</div>
+        <button class="btn" onclick="clearAllData()" style="color:var(--high);border-color:var(--high)">Clear all local data</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── Storage ───────────────────────────────────────────────────────────────
+const TASKS_KEY = 'dp_tasks_v2';
+const BLOCKS_KEY = 'dp_blocks_v2';
+const CLIENT_ID_KEY = 'dp_azure_client_id';
+const ACCOUNT_KEY = 'dp_account_name';
+const QUEUE_KEY = 'dp_offline_queue';
+
+let tasks = [], blocks = [], offlineQueue = [];
+let msalInstance = null, graphToken = null;
+
+function load() {
+  try { tasks = JSON.parse(localStorage.getItem(TASKS_KEY)) || []; } catch(e) { tasks = []; }
+  try { blocks = JSON.parse(localStorage.getItem(BLOCKS_KEY)) || []; } catch(e) { blocks = []; }
+  try { offlineQueue = JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch(e) { offlineQueue = []; }
+}
+
+function saveTasks() { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks)); }
+function saveBlocks() { localStorage.setItem(BLOCKS_KEY, JSON.stringify(blocks)); }
+function saveQueue() { localStorage.setItem(QUEUE_KEY, JSON.stringify(offlineQueue)); }
+
+// ─── Offline detection ─────────────────────────────────────────────────────
+function updateOfflineBanner() {
+  document.getElementById('offline-banner').classList.toggle('show', !navigator.onLine);
+}
+window.addEventListener('online', () => { updateOfflineBanner(); flushQueue(); });
+window.addEventListener('offline', updateOfflineBanner);
+
+// ─── Tasks ─────────────────────────────────────────────────────────────────
+function addTask() {
+  const txt = document.getElementById('new-task').value.trim();
+  if (!txt) return;
+  const task = { id: Date.now(), text: txt, time: document.getElementById('task-time').value, priority: document.getElementById('task-priority').value, done: false, outlookId: null };
+  tasks.push(task);
+  document.getElementById('new-task').value = '';
+  document.getElementById('task-time').value = '';
+  saveTasks(); render();
+  if (graphToken) createOutlookTask(task);
+}
+
+function toggleTask(id) {
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  t.done = !t.done;
+  saveTasks(); render();
+  if (graphToken && t.outlookId) updateOutlookTask(t);
+}
+
+function deleteTask(id) {
+  const t = tasks.find(x => x.id === id);
+  tasks = tasks.filter(x => x.id !== id);
+  saveTasks(); render();
+  if (graphToken && t && t.outlookId) deleteOutlookTask(t.outlookId);
+}
+
+// ─── Schedule blocks ────────────────────────────────────────────────────────
+function addBlock() {
+  const title = document.getElementById('bl-title').value.trim();
+  const start = document.getElementById('bl-start').value;
+  if (!title || !start) return;
+  const block = { id: Date.now(), title, start, end: document.getElementById('bl-end').value, cat: document.getElementById('bl-cat').value, outlookId: null };
+  blocks.push(block);
+  blocks.sort((a,b) => a.start.localeCompare(b.start));
+  document.getElementById('bl-title').value = '';
+  document.getElementById('bl-start').value = '';
+  document.getElementById('bl-end').value = '';
+  saveBlocks(); render();
+  if (graphToken) createOutlookEvent(block);
+}
+
+function deleteBlock(id) {
+  const b = blocks.find(x => x.id === id);
+  blocks = blocks.filter(x => x.id !== id);
+  saveBlocks(); render();
+  if (graphToken && b && b.outlookId) deleteOutlookEvent(b.outlookId);
+}
+
+// ─── Render ────────────────────────────────────────────────────────────────
+function render() { renderStats(); renderTasks(); renderBlocks(); }
+
+function renderStats() {
+  const total = tasks.length, done = tasks.filter(t=>t.done).length, high = tasks.filter(t=>t.priority==='high'&&!t.done).length;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="stat-n">${total}</div><div class="stat-l">Total tasks</div></div>
+    <div class="stat"><div class="stat-n">${done}</div><div class="stat-l">Completed</div></div>
+    <div class="stat"><div class="stat-n">${high}</div><div class="stat-l">High priority</div></div>`;
+}
+
+function renderTasks() {
+  const el = document.getElementById('task-list');
+  if (!tasks.length) { el.innerHTML = '<div class="empty">No tasks yet — add one above</div>'; return; }
+  const sorted = [...tasks].sort((a,b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    return {high:0,med:1,low:2}[a.priority] - {high:0,med:1,low:2}[b.priority];
+  });
+  el.innerHTML = sorted.map(t => `
+    <div class="task-item">
+      <div class="task-check ${t.done?'done':''}" onclick="toggleTask(${t.id})" role="checkbox" aria-checked="${t.done}" aria-label="Mark done"></div>
+      <div class="priority-dot p-${t.priority}"></div>
+      <div class="task-body">
+        <div class="task-text ${t.done?'done':''}">${escHtml(t.text)}</div>
+        <div class="task-meta">
+          ${t.time ? `<span class="task-time-lbl">⏰ ${t.time}</span>` : ''}
+          <span class="badge pb-${t.priority}">${t.priority}</span>
+          ${t.outlookId ? '<span class="badge badge-outlook">Outlook</span>' : ''}
+        </div>
+      </div>
+      <button class="item-del" onclick="deleteTask(${t.id})" aria-label="Delete">✕</button>
+    </div>`).join('');
+}
+
+function renderBlocks() {
+  const el = document.getElementById('block-list');
+  if (!blocks.length) { el.innerHTML = '<div class="empty">No blocks yet — add one above</div>'; return; }
+  el.innerHTML = blocks.map(b => `
+    <div class="block-item">
+      <div class="block-time">${b.start}${b.end ? '<br>→ '+b.end : ''}</div>
+      <div class="block-body">
+        <div class="block-title">${escHtml(b.title)}</div>
+        <span class="block-cat cat-${b.outlookId?'outlook':b.cat}">${b.outlookId ? '📅 Outlook' : b.cat}</span>
+      </div>
+      <button class="item-del" onclick="deleteBlock(${b.id})" aria-label="Delete">✕</button>
+    </div>`).join('');
+}
+
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ─── Tab switching ──────────────────────────────────────────────────────────
+function showTab(name, btn) {
+  ['tasks','schedule','assistant','settings'].forEach(n => {
+    document.getElementById('tab-'+n).classList.toggle('hidden', n !== name);
+  });
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ─── AI Assistant ────────────────────────────────────────────────────────────
+function quickAsk(msg) { document.getElementById('ai-input').value = msg; sendAI(); }
+
+function sendAI() {
+  const inp = document.getElementById('ai-input');
+  const msg = inp.value.trim();
+  if (!msg) return;
+  if (!navigator.onLine) {
+    offlineQueue.push({ type: 'ai', msg }); saveQueue();
+    alert('You\'re offline. Your message is queued and will be sent when you reconnect.');
+    return;
+  }
+  const area = document.getElementById('msg-area');
+  area.innerHTML += `<div class="ai-msg user">${escHtml(msg)}</div>`;
+  inp.value = '';
+  const loading = document.createElement('div');
+  loading.className = 'ai-msg assistant'; loading.textContent = '…';
+  area.appendChild(loading); area.scrollTop = area.scrollHeight;
+
+  const ctx = `You are a concise personal daily planner assistant. Tasks: ${tasks.length ? tasks.map(t=>`[${t.priority}] ${t.text}${t.done?' (done)':''}`).join(', ') : 'none'}. Schedule: ${blocks.length ? blocks.map(b=>`${b.start} ${b.title}`).join(', ') : 'none'}. Keep replies short (2-4 sentences) and actionable.`;
+
+  fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, system: ctx, messages: [{ role: 'user', content: msg }] })
+  }).then(r => r.json()).then(data => {
+    loading.textContent = data.content?.[0]?.text || 'Sorry, could not respond right now.';
+    area.scrollTop = area.scrollHeight;
+  }).catch(() => { loading.textContent = 'Something went wrong. Try again.'; });
+}
+
+// ─── Offline queue flush ─────────────────────────────────────────────────────
+async function flushQueue() {
+  if (!offlineQueue.length) return;
+  const pending = [...offlineQueue]; offlineQueue = []; saveQueue();
+  for (const item of pending) {
+    if (item.type === 'createEvent' && graphToken) await graphFetch('POST', '/me/events', item.body);
+    if (item.type === 'deleteEvent' && graphToken) await graphFetch('DELETE', `/me/events/${item.id}`);
+    if (item.type === 'createTask' && graphToken) {
+      const lists = await graphFetch('GET', '/me/todo/lists');
+      if (lists && lists.value && lists.value[0]) await graphFetch('POST', `/me/todo/lists/${lists.value[0].id}/tasks`, item.body);
+    }
+  }
+}
+
+// ─── MSAL / Outlook ──────────────────────────────────────────────────────────
+function handleOutlookBtn() {
+  const clientId = localStorage.getItem(CLIENT_ID_KEY);
+  if (!clientId) { showTab('settings', document.querySelectorAll('.tab')[3]); }
+  else if (!graphToken) { signInOutlook(); }
+  else { syncOutlookCalendar(); }
+}
+
+function saveClientId() {
+  const id = document.getElementById('client-id-input').value.trim();
+  if (!id) return alert('Please paste your Azure Client ID first.');
+  localStorage.setItem(CLIENT_ID_KEY, id);
+  initMsal(id);
+  signInOutlook();
+}
+
+function initMsal(clientId) {
+  try {
+    msalInstance = new msal.PublicClientApplication({
+      auth: { clientId, authority: 'https://login.microsoftonline.com/common', redirectUri: window.location.href.split('?')[0].split('#')[0] },
+      cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
+    });
+  } catch(e) { console.error('MSAL init failed', e); }
+}
+
+async function signInOutlook() {
+  if (!msalInstance) { const id = localStorage.getItem(CLIENT_ID_KEY); if (id) initMsal(id); else return; }
+  try {
+    const result = await msalInstance.loginPopup({ scopes: ['Calendars.ReadWrite', 'Tasks.ReadWrite', 'User.Read'] });
+    graphToken = result.accessToken;
+    const name = result.account?.username || result.account?.name || 'your account';
+    localStorage.setItem(ACCOUNT_KEY, name);
+    updateOutlookUI(true, name);
+    syncOutlookCalendar();
+  } catch(e) { console.error('Sign in failed', e); alert('Sign in failed. Please check your Client ID and Azure setup.'); }
+}
+
+async function acquireToken() {
+  if (!msalInstance) return null;
+  const accounts = msalInstance.getAllAccounts();
+  if (!accounts.length) return null;
+  try {
+    const result = await msalInstance.acquireTokenSilent({ scopes: ['Calendars.ReadWrite', 'Tasks.ReadWrite'], account: accounts[0] });
+    return result.accessToken;
+  } catch(e) {
+    const result = await msalInstance.acquireTokenPopup({ scopes: ['Calendars.ReadWrite', 'Tasks.ReadWrite'] });
+    return result.accessToken;
+  }
+}
+
+async function graphFetch(method, path, body) {
+  if (!graphToken) { graphToken = await acquireToken(); }
+  if (!graphToken) return null;
+  const opts = { method, headers: { 'Authorization': 'Bearer ' + graphToken, 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const r = await fetch('https://graph.microsoft.com/v1.0' + path, opts);
+    if (r.status === 204) return {};
+    if (!r.ok) { console.error('Graph error', r.status, await r.text()); return null; }
+    return await r.json();
+  } catch(e) {
+    if (!navigator.onLine && body) { offlineQueue.push({ type: method==='POST'?'createEvent':'deleteEvent', body, id: path.split('/').pop() }); saveQueue(); }
+    return null;
+  }
+}
+
+async function syncOutlookCalendar() {
+  setSyncStatus('syncing', 'Syncing…');
+  graphToken = await acquireToken();
+  if (!graphToken) { setSyncStatus('off', 'Not connected'); return; }
+
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
+
+  const data = await graphFetch('GET', `/me/calendarView?startDateTime=${start}&endDateTime=${end}&$select=id,subject,start,end&$top=50`);
+  if (!data || !data.value) { setSyncStatus('live', 'Sync failed — check connection'); return; }
+
+  const existingOutlookIds = new Set(blocks.filter(b=>b.outlookId).map(b=>b.outlookId));
+  const freshIds = new Set(data.value.map(e=>e.id));
+
+  // Remove blocks from outlook that no longer exist in calendar
+  blocks = blocks.filter(b => !b.outlookId || freshIds.has(b.outlookId));
+
+  // Add new events
+  for (const ev of data.value) {
+    if (!existingOutlookIds.has(ev.id)) {
+      const s = new Date(ev.start.dateTime || ev.start.date);
+      const e2 = new Date(ev.end.dateTime || ev.end.date);
+      blocks.push({
+        id: Date.now() + Math.random(),
+        title: ev.subject || '(No title)',
+        start: s.toTimeString().slice(0,5),
+        end: e2.toTimeString().slice(0,5),
+        cat: 'outlook',
+        outlookId: ev.id
+      });
+    }
+  }
+  blocks.sort((a,b) => a.start.localeCompare(b.start));
+  saveBlocks(); render();
+  setSyncStatus('live', `Synced — ${data.value.length} event${data.value.length!==1?'s':''} today`);
+}
+
+async function createOutlookEvent(block) {
+  if (!navigator.onLine) { offlineQueue.push({ type: 'createEvent', body: buildEventBody(block) }); saveQueue(); return; }
+  const data = await graphFetch('POST', '/me/events', buildEventBody(block));
+  if (data && data.id) { block.outlookId = data.id; saveBlocks(); render(); }
+}
+
+function buildEventBody(block) {
+  const today = new Date().toISOString().slice(0,10);
+  return {
+    subject: block.title,
+    start: { dateTime: `${today}T${block.start || '09:00'}:00`, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+    end: { dateTime: `${today}T${block.end || block.start || '10:00'}:00`, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+  };
+}
+
+async function deleteOutlookEvent(outlookId) {
+  if (!navigator.onLine) { offlineQueue.push({ type: 'deleteEvent', id: outlookId }); saveQueue(); return; }
+  await graphFetch('DELETE', `/me/events/${outlookId}`);
+}
+
+async function createOutlookTask(task) {
+  if (!navigator.onLine) { offlineQueue.push({ type: 'createTask', body: { title: task.text, importance: task.priority==='high'?'high':task.priority==='low'?'low':'normal' } }); saveQueue(); return; }
+  const lists = await graphFetch('GET', '/me/todo/lists');
+  if (!lists || !lists.value || !lists.value[0]) return;
+  const listId = lists.value[0].id;
+  const data = await graphFetch('POST', `/me/todo/lists/${listId}/tasks`, { title: task.text, importance: task.priority==='high'?'high':task.priority==='low'?'low':'normal' });
+  if (data && data.id) { task.outlookId = data.id; saveTasks(); render(); }
+}
+
+async function updateOutlookTask(task) {
+  const lists = await graphFetch('GET', '/me/todo/lists');
+  if (!lists || !lists.value || !lists.value[0]) return;
+  const listId = lists.value[0].id;
+  await graphFetch('PATCH', `/me/todo/lists/${listId}/tasks/${task.outlookId}`, { status: task.done ? 'completed' : 'notStarted' });
+}
+
+async function deleteOutlookTask(outlookId) {
+  const lists = await graphFetch('GET', '/me/todo/lists');
+  if (!lists || !lists.value || !lists.value[0]) return;
+  const listId = lists.value[0].id;
+  await graphFetch('DELETE', `/me/todo/lists/${listId}/tasks/${outlookId}`);
+}
+
+function disconnectOutlook() {
+  if (!confirm('Disconnect Outlook? Your local tasks and schedule will be kept.')) return;
+  graphToken = null; msalInstance = null;
+  localStorage.removeItem(CLIENT_ID_KEY); localStorage.removeItem(ACCOUNT_KEY);
+  blocks = blocks.filter(b => !b.outlookId);
+  saveBlocks(); render();
+  updateOutlookUI(false);
+}
+
+function clearAllData() {
+  if (!confirm('Clear all local tasks and schedule? This cannot be undone.')) return;
+  tasks = []; blocks = []; offlineQueue = [];
+  saveTasks(); saveBlocks(); saveQueue(); render();
+}
+
+function setSyncStatus(state, label) {
+  const dot = document.getElementById('sync-dot');
+  dot.className = 'sync-dot' + (state==='live'?' live':state==='syncing'?' syncing':'');
+  document.getElementById('sync-label').textContent = label;
+  document.getElementById('sync-btn').style.display = state!=='syncing' ? '' : 'none';
+}
+
+function updateOutlookUI(connected, name) {
+  const btn = document.getElementById('outlook-status-btn');
+  const setup = document.getElementById('setup-screen');
+  const connectedSettings = document.getElementById('connected-settings');
+  if (connected) {
+    btn.textContent = '📅 Outlook synced';
+    btn.className = 'btn btn-success';
+    setup.classList.add('hidden');
+    connectedSettings.classList.remove('hidden');
+    document.getElementById('signed-in-as').textContent = name || localStorage.getItem(ACCOUNT_KEY) || '—';
+    setSyncStatus('live', 'Connected to Outlook');
+  } else {
+    btn.textContent = '📅 Connect Outlook';
+    btn.className = 'btn';
+    setup.classList.remove('hidden');
+    connectedSettings.classList.add('hidden');
+    setSyncStatus('off', 'Not connected to Outlook');
+  }
+}
+
+// ─── Init ──────────────────────────────────────────────────────────────────
+document.getElementById('redirect-uri').textContent = window.location.href.split('?')[0].split('#')[0];
+
+const now = new Date();
+const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+document.getElementById('date-label').textContent = `${days[now.getDay()]}, ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+const h = now.getHours();
+document.getElementById('greeting').textContent = h < 12 ? 'Good morning ☀️' : h < 17 ? 'Good afternoon' : 'Good evening 🌙';
+
+document.getElementById('new-task').addEventListener('keydown', e => { if (e.key==='Enter') addTask(); });
+document.getElementById('ai-input').addEventListener('keydown', e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendAI(); } });
+
+load(); render(); updateOfflineBanner();
+
+// Restore Outlook connection if previously set up
+const savedClientId = localStorage.getItem(CLIENT_ID_KEY);
+const savedAccount = localStorage.getItem(ACCOUNT_KEY);
+if (savedClientId) {
+  initMsal(savedClientId);
+  if (savedAccount) updateOutlookUI(true, savedAccount);
+  // Try silent token acquisition
+  setTimeout(async () => {
+    const token = await acquireToken().catch(() => null);
+    if (token) { graphToken = token; updateOutlookUI(true, savedAccount); }
+  }, 500);
+}
+
+// Populate client ID input if already saved
+if (savedClientId) document.getElementById('client-id-input').value = savedClientId;
+</script>
+</body>
+</html>
