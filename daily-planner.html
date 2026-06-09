@@ -478,21 +478,23 @@ function saveClientId() {
   const id = document.getElementById('client-id-input').value.trim();
   if (!id) return alert('Please paste your Azure Client ID first.');
   localStorage.setItem(CLIENT_ID_KEY, id);
-  initMsal(id);
+  await initMsal(id);
   signInOutlook();
 }
 
-function initMsal(clientId) {
+async function initMsal(clientId) {
   try {
     msalInstance = new msal.PublicClientApplication({
       auth: { clientId, authority: 'https://login.microsoftonline.com/common', redirectUri: window.location.href.split('?')[0].split('#')[0] },
       cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
     });
-  } catch(e) { console.error('MSAL init failed', e); }
+    await msalInstance.initialize();
+  } catch(e) { console.error('MSAL init failed', e); msalInstance = null; }
 }
 
 async function signInOutlook() {
-  if (!msalInstance) { const id = localStorage.getItem(CLIENT_ID_KEY); if (id) initMsal(id); else return; }
+  if (!msalInstance) { const id = localStorage.getItem(CLIENT_ID_KEY); if (id) await initMsal(id); else return; }
+  if (!msalInstance) { alert('MSAL failed to initialise. Please check your Client ID.'); return; }
   try {
     const result = await msalInstance.loginPopup({ scopes: ['Calendars.ReadWrite', 'Tasks.ReadWrite', 'User.Read'] });
     graphToken = result.accessToken;
@@ -674,13 +676,12 @@ load(); render(); updateOfflineBanner();
 const savedClientId = localStorage.getItem(CLIENT_ID_KEY);
 const savedAccount = localStorage.getItem(ACCOUNT_KEY);
 if (savedClientId) {
-  initMsal(savedClientId);
-  if (savedAccount) updateOutlookUI(true, savedAccount);
-  // Try silent token acquisition
-  setTimeout(async () => {
+  (async () => {
+    await initMsal(savedClientId);
+    if (savedAccount) updateOutlookUI(true, savedAccount);
     const token = await acquireToken().catch(() => null);
     if (token) { graphToken = token; updateOutlookUI(true, savedAccount); }
-  }, 500);
+  })();
 }
 
 // Populate client ID input if already saved
